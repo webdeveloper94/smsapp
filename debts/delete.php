@@ -1,29 +1,30 @@
 <?php
+require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/database.php';
 
 $auth = new Auth();
-$auth->requirePermission('delete_groups');
+$auth->requirePermission('delete_debts');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();
 $userRole = $auth->getUserRole();
 
-$groupId = $_GET['id'] ?? 0;
+$debtorId = $_GET['id'] ?? 0;
 
-// Get group
-$group = $db->query(
-    "SELECT * FROM groups WHERE id = ?",
-    [$groupId]
+// Get debtor
+$debtor = $db->query(
+    "SELECT * FROM debtors WHERE id = ?",
+    [$debtorId]
 )->fetch();
 
-if (!$group) {
+if (!$debtor) {
     header('Location: index.php');
     exit;
 }
 
 // Check permissions
-if ($userRole !== 'super_admin' && $group['created_by'] != $userId) {
+if ($userRole !== 'super_admin' && $debtor['created_by'] != $userId) {
     header('Location: index.php');
     exit;
 }
@@ -31,10 +32,10 @@ if ($userRole !== 'super_admin' && $group['created_by'] != $userId) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
     try {
         // Log activity before delete
-        $auth->logActivity($userId, 'delete', 'groups', $groupId, "Group deleted: " . $group['name']);
+        $auth->logActivity($userId, 'delete', 'debtors', $debtorId, "Debtor deleted: " . $debtor['name']);
         
-        // Delete group (cascade will delete contacts and settings)
-        $db->query("DELETE FROM groups WHERE id = ?", [$groupId]);
+        // Soft delete - mark as deleted
+        $db->query("UPDATE debtors SET status = 'deleted' WHERE id = ?", [$debtorId]);
         
         header('Location: index.php?success=1');
         exit;
@@ -48,39 +49,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guruhni O'chirish - <?php echo APP_NAME; ?></title>
-    <link rel="stylesheet" href="../assets/css/style.css">
+    <title>Qarzdorni O'chirish - <?php echo APP_NAME; ?></title>
+    <link rel="stylesheet" href="<?php echo base_url('/assets/css/style.css'); ?>">
 </head>
 <body>
     <?php include '../includes/header.php'; ?>
     
     <div class="container">
-        <h1>Guruhni O'chirish</h1>
+        <h1>Qarzdorni O'chirish</h1>
 
         <?php if (isset($error)): ?>
             <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
 
         <div class="card">
-            <p><strong>Diqqat!</strong> Bu guruhni o'chirish barcha kontaktlar va sozlamalarni ham o'chiradi.</p>
-            <p><strong>Guruh:</strong> <?php echo htmlspecialchars($group['name']); ?></p>
-            
-            <?php
-            $contactCount = $db->query(
-                "SELECT COUNT(*) as count FROM contacts WHERE group_id = ?",
-                [$groupId]
-            )->fetch()['count'];
-            ?>
-            <p><strong>Kontaktlar soni:</strong> <?php echo $contactCount; ?></p>
+            <p><strong>Diqqat!</strong> Bu qarzdorni o'chirmoqchimisiz?</p>
+            <p><strong>Ism:</strong> <?php echo htmlspecialchars($debtor['name']); ?></p>
+            <p><strong>Telefon:</strong> <?php echo htmlspecialchars($debtor['phone']); ?></p>
+            <p><strong>Qarz Summasi:</strong> <?php echo number_format($debtor['debt_amount'], 0, ',', ' '); ?> so'm</p>
 
             <form method="POST" style="margin-top: 1.5rem;">
                 <button type="submit" name="confirm" value="1" class="btn btn-danger">Ha, o'chirish</button>
-                <a href="view.php?id=<?php echo $groupId; ?>" class="btn btn-secondary">Bekor qilish</a>
+                <a href="index.php" class="btn btn-secondary">Bekor qilish</a>
             </form>
         </div>
     </div>
 
-    <script src="../assets/js/main.js"></script>
+    <script src="<?php echo base_url('/assets/js/main.js'); ?>"></script>
 </body>
 </html>
 

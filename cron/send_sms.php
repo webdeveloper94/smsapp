@@ -8,9 +8,10 @@
  * Linux: 0 9 * * * /usr/bin/php /path/to/smsapp/cron/send_sms.php
  */
 
-require_once __DIR__ . '/../includes/database.php';
-require_once __DIR__ . '/../includes/eskiz_api.php';
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/database.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/eskiz_api.php';
 
 $db = Database::getInstance();
 $eskiz = new EskizAPI();
@@ -60,6 +61,24 @@ $failedCount = 0;
 
 foreach ($allContacts as $contact) {
     try {
+        // Check SMS limit for admin (skip for super_admin)
+        $user = $db->query("SELECT role, sms_limit FROM users WHERE id = ?", [$contact['created_by']])->fetch();
+        if ($user && $user['role'] === 'admin' && $user['sms_limit'] !== null && $user['sms_limit'] != -1) {
+            $currentMonth = date('Y-m');
+            $smsCount = $db->query(
+                "SELECT sent_count FROM user_sms_count WHERE user_id = ? AND `year_month` = ?",
+                [$contact['created_by'], $currentMonth]
+            )->fetch();
+            
+            $sentCount = $smsCount ? (int)$smsCount['sent_count'] : 0;
+            if ($sentCount >= $user['sms_limit']) {
+                // Skip - limit reached
+                error_log("SMS limit reached for user {$contact['created_by']}. Limit: {$user['sms_limit']}, Sent: $sentCount");
+                $failedCount++;
+                continue;
+            }
+        }
+        
         // Get message
         $message = $contact['message'];
         if (empty($message) && isset($contact['default_message'])) {
@@ -89,6 +108,10 @@ foreach ($allContacts as $contact) {
                 "UPDATE contacts SET status = 'sent', sent_at = NOW() WHERE id = ?",
                 [$contact['id']]
             );
+            
+            // Increment SMS count for admin (using Auth class)
+            $auth = new Auth();
+            $auth->incrementSMSCount($contact['created_by']);
             
             // Log success
             $db->query(

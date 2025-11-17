@@ -27,9 +27,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $lastName = trim($_POST['last_name'] ?? '');
     $password = $_POST['password'] ?? '';
     $isActive = isset($_POST['is_active']) ? 1 : 0;
+    $smsLimit = isset($_POST['sms_limit']) && $_POST['sms_limit'] !== '' ? (int)$_POST['sms_limit'] : null;
 
     if (empty($firstName) || empty($lastName)) {
         $error = 'Ism va familiyani kiriting';
+    } elseif ($smsLimit !== null && $smsLimit < 0) {
+        $error = 'SMS limiti manfiy bo\'lishi mumkin emas';
     } else {
         try {
             if (!empty($password)) {
@@ -38,14 +41,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
                     $db->query(
-                        "UPDATE users SET first_name = ?, last_name = ?, password = ?, is_active = ? WHERE id = ?",
-                        [$firstName, $lastName, $hashedPassword, $isActive, $adminId]
+                        "UPDATE users SET first_name = ?, last_name = ?, password = ?, is_active = ?, sms_limit = ? WHERE id = ?",
+                        [$firstName, $lastName, $hashedPassword, $isActive, $smsLimit, $adminId]
                     );
                 }
             } else {
                 $db->query(
-                    "UPDATE users SET first_name = ?, last_name = ?, is_active = ? WHERE id = ?",
-                    [$firstName, $lastName, $isActive, $adminId]
+                    "UPDATE users SET first_name = ?, last_name = ?, is_active = ?, sms_limit = ? WHERE id = ?",
+                    [$firstName, $lastName, $isActive, $smsLimit, $adminId]
                 );
             }
             
@@ -103,6 +106,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <input type="checkbox" name="is_active" value="1" <?php echo $admin['is_active'] ? 'checked' : ''; ?>>
                         Faol
                     </label>
+                </div>
+
+                <div class="form-group">
+                    <label for="sms_limit">SMS Limit (oyiga)</label>
+                    <input type="number" id="sms_limit" name="sms_limit" min="0" value="<?php echo $admin['sms_limit'] !== null ? htmlspecialchars($admin['sms_limit']) : ''; ?>" placeholder="Cheksiz uchun bo'sh qoldiring">
+                    <small>Admin oyiga nechta SMS yubora olishi. Bo'sh qoldirilsa cheksiz bo'ladi.</small>
                 </div>
 
                 <div class="actions-bar">

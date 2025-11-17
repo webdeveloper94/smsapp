@@ -17,27 +17,31 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$contactId = $_POST['contact_id'] ?? 0;
+$debtorId = $_POST['debtor_id'] ?? 0;
 $message = trim($_POST['message'] ?? '');
 
-if (empty($contactId) || empty($message)) {
-    echo json_encode(['success' => false, 'message' => 'Kontakt ID va SMS matni kiritilishi shart']);
+if (empty($debtorId) || empty($message)) {
+    echo json_encode(['success' => false, 'message' => 'Qarzdor ID va SMS matni kiritilishi shart']);
     exit;
 }
 
-// Get contact
-$contact = $db->query(
-    "SELECT c.*, g.created_by 
-     FROM contacts c 
-     JOIN groups g ON c.group_id = g.id 
-     WHERE c.id = ?",
-    [$contactId]
+// Get debtor
+$debtor = $db->query(
+    "SELECT * FROM debtors WHERE id = ?",
+    [$debtorId]
 )->fetch();
 
-if (!$contact) {
-    echo json_encode(['success' => false, 'message' => 'Kontakt topilmadi']);
+if (!$debtor) {
+    echo json_encode(['success' => false, 'message' => 'Qarzdor topilmadi']);
     exit;
 }
+
+// Get SMS template for debtor's creator
+$debtSettings = $db->query(
+    "SELECT sms_message_template FROM debt_settings WHERE user_id = ? LIMIT 1",
+    [$debtor['created_by']]
+)->fetch();
+$messageTemplate = $debtSettings ? $debtSettings['sms_message_template'] : 'sizning megamarket do\'konidan qarzingiz bor iltimos qarzingizni to\'lang';
 
 // Check permissions
 $userRole = $auth->getUserRole();
@@ -46,7 +50,7 @@ if (!$auth->hasPermission('send_sms')) {
     exit;
 }
 
-if ($userRole !== 'super_admin' && $contact['created_by'] != $userId) {
+if ($userRole !== 'super_admin' && $debtor['created_by'] != $userId) {
     echo json_encode(['success' => false, 'message' => 'Ruxsat yo\'q']);
     exit;
 }
@@ -66,33 +70,33 @@ try {
     $eskiz = new EskizAPI();
     
     // Log before sending
-    error_log("Attempting to send SMS to: " . $contact['phone'] . ", Message length: " . strlen($message));
+    error_log("Attempting to send SMS to debtor: " . $debtor['phone'] . ", Message length: " . strlen($message));
     
-    $result = $eskiz->sendSMS($contact['phone'], $message);
+    $result = $eskiz->sendSMS($debtor['phone'], $message);
     
     // Log result
-    error_log("SMS Send Result: " . print_r($result, true));
+    error_log("Debt SMS Send Result: " . print_r($result, true));
     
     if ($result['success']) {
-        // Update contact status
+        // Update last_sent_date
         $db->query(
-            "UPDATE contacts SET status = 'sent', sent_at = NOW() WHERE id = ?",
-            [$contactId]
+            "UPDATE debtors SET last_sent_date = CURDATE() WHERE id = ?",
+            [$debtorId]
         );
         
-        // Increment SMS count (use contact's creator, not current user if different)
-        error_log("About to increment SMS count for contact creator: " . $contact['created_by']);
-        $auth->incrementSMSCount($contact['created_by']);
-        error_log("SMS count increment called for user: " . $contact['created_by']);
+        // Increment SMS count (use debtor's creator, not current user if different)
+        error_log("About to increment SMS count for debtor creator: " . $debtor['created_by']);
+        $auth->incrementSMSCount($debtor['created_by']);
+        error_log("SMS count increment called for user: " . $debtor['created_by']);
         
         // Log SMS
         $db->query(
-            "INSERT INTO sms_logs (contact_id, phone, message, status, sent_by) VALUES (?, ?, ?, 'success', ?)",
-            [$contactId, $contact['phone'], $message, $userId]
+            "INSERT INTO debt_sms_logs (debtor_id, phone, message, status, sent_by) VALUES (?, ?, ?, 'success', ?)",
+            [$debtorId, $debtor['phone'], $message, $userId]
         );
         
         // Log activity
-        $auth->logActivity($userId, 'send_sms', 'contacts', $contactId, "SMS sent manually to " . $contact['phone']);
+        $auth->logActivity($userId, 'send_sms', 'debtors', $debtorId, "SMS sent manually to debtor " . $debtor['name']);
         
         // Get updated limit info
         $updatedLimit = $auth->checkSMSLimit();
@@ -106,17 +110,11 @@ try {
             'message' => 'SMS muvaffaqiyatli yuborildi!' . $limitMsg
         ]);
     } else {
-        // Update contact status
-        $db->query(
-            "UPDATE contacts SET status = 'failed' WHERE id = ?",
-            [$contactId]
-        );
-        
         // Log failure
         $errorMsg = $result['message'] ?? 'Noma\'lum xatolik';
         $db->query(
-            "INSERT INTO sms_logs (contact_id, phone, message, status, error_message, sent_by) VALUES (?, ?, ?, 'failed', ?, ?)",
-            [$contactId, $contact['phone'], $message, $errorMsg, $userId]
+            "INSERT INTO debt_sms_logs (debtor_id, phone, message, status, error_message, sent_by) VALUES (?, ?, ?, 'failed', ?, ?)",
+            [$debtorId, $debtor['phone'], $message, $errorMsg, $userId]
         );
         
         echo json_encode([
@@ -125,7 +123,7 @@ try {
         ]);
     }
 } catch (Exception $e) {
-    error_log("SMS sending error: " . $e->getMessage());
+    error_log("Debt SMS sending error: " . $e->getMessage());
     echo json_encode([
         'success' => false, 
         'message' => 'Xatolik yuz berdi: ' . $e->getMessage()

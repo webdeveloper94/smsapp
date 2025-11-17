@@ -4,7 +4,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/database.php';
 
 $auth = new Auth();
-$auth->requireLogin();
+$auth->requirePermission('view_dashboard');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();
@@ -95,13 +95,15 @@ if ($userRole === 'super_admin') {
         </div>
 
         <div class="actions-bar">
-            <a href="<?php echo base_url('/groups/create.php'); ?>" class="btn btn-primary">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                Yangi Guruh
-            </a>
+            <?php if ($auth->hasPermission('create_groups')): ?>
+                <a href="<?php echo base_url('/groups/create.php'); ?>" class="btn btn-primary">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Yangi Guruh
+                </a>
+            <?php endif; ?>
         </div>
 
         <div class="table-container">

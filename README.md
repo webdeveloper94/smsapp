@@ -13,6 +13,7 @@ Bu loyiha guruhlangan kontaktlarga Eskiz SMS API orqali SMS yuborish uchun yarat
 
 - **Rollar**: Super Admin va Admin
 - **Autentifikatsiya**: Faqat parol orqali kirish
+- **Huquqlar Boshqaruvi**: Super admin adminlarga alohida-alohida huquqlar berishi mumkin
 - **Guruhlar**: Kontaktlarni guruhlash
 - **SMS Rejalashtirish**: Sana bo'yicha avtomatik SMS yuborish
 - **Faoliyat Jurnali**: Kim nima qilganini kuzatish
@@ -56,7 +57,17 @@ php setup.php
 
 Dastlabki super admin paroli: `admin123` (birinchi kirishdan keyin o'zgartiring!)
 
-### 4. SMS Yuborish Cron Job
+### 4. Permissions Jadvalini Yaratish
+
+Permissions jadvalini yaratish uchun:
+
+```bash
+mysql -u root -p smsapp < database/add_permissions.sql
+```
+
+Yoki phpMyAdmin orqali `database/add_permissions.sql` faylini import qiling.
+
+### 5. SMS Yuborish Cron Job
 
 Windows uchun:
 ```bash
@@ -78,10 +89,29 @@ Yoki har soatda:
 1. `/login.php` sahifasiga kiring
 2. Parolni kiriting
 3. Super Admin sifatida adminlar yarating
-4. Guruhlar yarating
-5. Kontaktlar qo'shing
-6. SMS matn va sanani belgilang
-7. Cron job avtomatik SMS yuboradi
+4. Adminlarga huquqlar bering (`/admins/permissions.php`)
+5. Guruhlar yarating
+6. Kontaktlar qo'shing
+7. SMS matn va sanani belgilang
+8. Cron job avtomatik SMS yuboradi
+
+## Huquqlar Boshqaruvi
+
+Super admin adminlarga quyidagi huquqlarni berishi mumkin:
+
+- **Dashboard ko'rish** (`view_dashboard`)
+- **Guruhlarni ko'rish** (`view_groups`)
+- **Guruh yaratish** (`create_groups`)
+- **Guruh tahrirlash** (`edit_groups`)
+- **Guruh o'chirish** (`delete_groups`)
+- **Kontaktlarni ko'rish** (`view_contacts`)
+- **Kontakt yaratish** (`create_contacts`)
+- **Kontakt tahrirlash** (`edit_contacts`)
+- **Kontakt o'chirish** (`delete_contacts`)
+- **SMS yuborish** (`send_sms`)
+- **Hisobotlarni ko'rish** (`view_reports`)
+
+Huquqlarni boshqarish uchun Super Admin `/admins/permissions.php` sahifasiga kiring.
 
 ## Struktura
 

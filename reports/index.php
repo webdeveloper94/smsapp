@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/database.php';
 
 $auth = new Auth();
-$auth->requireLogin();
+$auth->requirePermission('view_reports');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();
@@ -14,6 +14,8 @@ $userRole = $auth->getUserRole();
 $dateFrom = isset($_GET['date_from']) ? $_GET['date_from'] : date('Y-m-d', strtotime('-30 days'));
 $dateTo = isset($_GET['date_to']) ? $_GET['date_to'] : date('Y-m-d');
 $filterUserId = isset($_GET['user_id']) && $_GET['user_id'] !== '' ? intval($_GET['user_id']) : null;
+$filterType = isset($_GET['sms_type']) && $_GET['sms_type'] !== '' ? $_GET['sms_type'] : null; // 'group' or 'debt'
+$filterGroupId = isset($_GET['group_id']) && $_GET['group_id'] !== '' ? intval($_GET['group_id']) : null;
 
 // Build query based on role
 $userCondition = '';
@@ -28,30 +30,72 @@ if ($userRole !== 'super_admin') {
     $params[] = $filterUserId;
 }
 
-// Get all admins for filter dropdown (only for super_admin)
+// Build SMS type filter condition
+$typeCondition = '';
+if ($filterType === 'group') {
+    $typeCondition = "AND sms_type = 'group'";
+} elseif ($filterType === 'debt') {
+    $typeCondition = "AND sms_type = 'debt'";
+}
+
+// Build group filter condition (only for group SMS)
+$groupCondition = '';
+if ($filterGroupId !== null) {
+    $groupCondition = "AND group_id = ?";
+}
+
+// Get all admins and super_admins for filter dropdown (only for super_admin)
 $admins = [];
 if ($userRole === 'super_admin') {
-    // Get all admins, not just those with SMS in the date range
+    // Get all admins and super_admins, not just those with SMS in the date range
     $admins = $db->query(
-        "SELECT id, first_name, last_name 
+        "SELECT id, first_name, last_name, role 
          FROM users 
-         WHERE role = 'admin' AND is_active = 1
-         ORDER BY first_name, last_name"
+         WHERE role IN ('admin', 'super_admin') AND is_active = 1
+         ORDER BY role DESC, first_name, last_name"
     )->fetchAll();
 }
 
-// Get statistics
+// Get all groups for filter (only for super_admin or if user has groups)
+$groups = [];
+if ($userRole === 'super_admin') {
+    $groups = $db->query("SELECT id, name FROM groups ORDER BY name")->fetchAll();
+} else {
+    $groups = $db->query("SELECT id, name FROM groups WHERE created_by = ? ORDER BY name", [$userId])->fetchAll();
+}
+
+// Get statistics from both sms_logs and debt_sms_logs
+$groupFilterForStats = '';
+$groupFilterParamsForStats = [];
+if ($filterGroupId !== null) {
+    $groupFilterForStats = "AND c.group_id = ?";
+    $groupFilterParamsForStats = [$filterGroupId];
+}
+
 $statsQuery = "
     SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count
-    FROM sms_logs 
-    WHERE DATE(sent_at) BETWEEN ? AND ?
-    $userCondition
+    FROM (
+        SELECT sl.status, sl.sent_at, sl.sent_by 
+        FROM sms_logs sl
+        LEFT JOIN contacts c ON sl.contact_id = c.id
+        WHERE DATE(sl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        $groupFilterForStats
+        " . ($filterType === 'debt' ? "AND 1=0" : "") . "
+        UNION ALL
+        SELECT dsl.status, dsl.sent_at, dsl.sent_by 
+        FROM debt_sms_logs dsl
+        WHERE DATE(dsl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        " . ($filterType === 'group' ? "AND 1=0" : "") . "
+    ) as all_logs
 ";
 
-$stats = $db->query($statsQuery, $params)->fetch();
+$statsParams = array_merge($params, $groupFilterParamsForStats, $params);
+$stats = $db->query($statsQuery, $statsParams)->fetch();
 
 // Ensure stats are not null
 if (!$stats) {
@@ -64,37 +108,110 @@ if (!$stats) {
 
 // Get detailed logs with pagination
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$perPage = 50;
+$perPage = 10; // 10 ta yozuv har sahifada
 $offset = ($page - 1) * $perPage;
+
+// Build logs query with filters
+$groupFilterSQL = '';
+$groupFilterParams = [];
+if ($filterGroupId !== null) {
+    $groupFilterSQL = "AND c.group_id = ?";
+    $groupFilterParams = [$filterGroupId];
+}
 
 $logsQuery = "
     SELECT 
-        sl.*,
-        c.name as contact_name,
-        g.name as group_name,
-        u.first_name,
-        u.last_name
-    FROM sms_logs sl
-    LEFT JOIN contacts c ON sl.contact_id = c.id
-    LEFT JOIN groups g ON c.group_id = g.id
-    LEFT JOIN users u ON sl.sent_by = u.id
-    WHERE DATE(sl.sent_at) BETWEEN ? AND ?
-    $userCondition
-    ORDER BY sl.sent_at DESC
+        id,
+        phone,
+        message,
+        status,
+        error_message,
+        sent_at,
+        sent_by,
+        first_name,
+        last_name,
+        contact_name,
+        group_name,
+        debtor_name,
+        sms_type
+    FROM (
+        SELECT 
+            sl.id,
+            sl.phone,
+            sl.message,
+            sl.status,
+            sl.error_message,
+            sl.sent_at,
+            sl.sent_by,
+            u.first_name,
+            u.last_name,
+            c.name as contact_name,
+            g.name as group_name,
+            g.id as group_id,
+            NULL as debtor_name,
+            'group' as sms_type
+        FROM sms_logs sl
+        LEFT JOIN contacts c ON sl.contact_id = c.id
+        LEFT JOIN groups g ON c.group_id = g.id
+        LEFT JOIN users u ON sl.sent_by = u.id
+        WHERE DATE(sl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        $groupFilterSQL
+        " . ($filterType === 'debt' ? "AND 1=0" : "") . "
+        UNION ALL
+        SELECT 
+            dsl.id,
+            dsl.phone,
+            dsl.message,
+            dsl.status,
+            dsl.error_message,
+            dsl.sent_at,
+            dsl.sent_by,
+            u2.first_name,
+            u2.last_name,
+            NULL as contact_name,
+            NULL as group_name,
+            NULL as group_id,
+            d.name as debtor_name,
+            'debt' as sms_type
+        FROM debt_sms_logs dsl
+        LEFT JOIN debtors d ON dsl.debtor_id = d.id
+        LEFT JOIN users u2 ON dsl.sent_by = u2.id
+        WHERE DATE(dsl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        " . ($filterType === 'group' ? "AND 1=0" : "") . "
+    ) as all_logs
+    WHERE 1=1
+    $typeCondition
+    ORDER BY sent_at DESC
     LIMIT $perPage OFFSET $offset
 ";
 
-$logs = $db->query($logsQuery, $params)->fetchAll();
+$logsParams = array_merge($params, $groupFilterParams, $params);
+$logs = $db->query($logsQuery, $logsParams)->fetchAll();
 
 // Get total count for pagination
 $totalCountQuery = "
     SELECT COUNT(*) as total 
-    FROM sms_logs 
-    WHERE DATE(sent_at) BETWEEN ? AND ?
-    $userCondition
+    FROM (
+        SELECT sl.sent_at, sl.sent_by, 'group' as sms_type, c.group_id
+        FROM sms_logs sl
+        LEFT JOIN contacts c ON sl.contact_id = c.id
+        WHERE DATE(sl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        $groupFilterSQL
+        " . ($filterType === 'debt' ? "AND 1=0" : "") . "
+        UNION ALL
+        SELECT dsl.sent_at, dsl.sent_by, 'debt' as sms_type, NULL as group_id
+        FROM debt_sms_logs dsl
+        WHERE DATE(dsl.sent_at) BETWEEN ? AND ?
+        $userCondition
+        " . ($filterType === 'group' ? "AND 1=0" : "") . "
+    ) as all_logs
 ";
-$totalCount = $db->query($totalCountQuery, $params)->fetch()['total'];
-$totalPages = ceil($totalCount / $perPage);
+$totalCountResult = $db->query($totalCountQuery, $logsParams)->fetch();
+$totalCount = (int)($totalCountResult['total'] ?? 0);
+$totalPages = $totalCount > 0 ? ceil($totalCount / $perPage) : 1;
 ?>
 <!DOCTYPE html>
 <html lang="uz">
@@ -130,14 +247,52 @@ $totalPages = ceil($totalCount / $perPage);
                             <label for="user_id">Admin</label>
                             <select id="user_id" name="user_id" class="form-control">
                                 <option value="">Barcha Adminlar</option>
-                                <?php foreach ($admins as $admin): ?>
+                                <?php 
+                                $currentRole = '';
+                                foreach ($admins as $index => $admin): 
+                                    // Group by role
+                                    if ($currentRole !== $admin['role']) {
+                                        // Close previous optgroup if exists
+                                        if ($currentRole !== '') {
+                                            echo '</optgroup>';
+                                        }
+                                        $currentRole = $admin['role'];
+                                        if ($currentRole === 'super_admin') {
+                                            echo '<optgroup label="Super Adminlar">';
+                                        } else {
+                                            echo '<optgroup label="Adminlar">';
+                                        }
+                                    }
+                                ?>
                                     <option value="<?php echo $admin['id']; ?>" <?php echo $filterUserId == $admin['id'] ? 'selected' : ''; ?>>
                                         <?php echo htmlspecialchars($admin['first_name'] . ' ' . $admin['last_name']); ?>
                                     </option>
                                 <?php endforeach; ?>
+                                <?php if ($currentRole !== ''): ?>
+                                    </optgroup>
+                                <?php endif; ?>
                             </select>
                         </div>
                     <?php endif; ?>
+                    <div class="form-group">
+                        <label for="sms_type">SMS Turi</label>
+                        <select id="sms_type" name="sms_type" class="form-control">
+                            <option value="">Barcha</option>
+                            <option value="group" <?php echo $filterType === 'group' ? 'selected' : ''; ?>>Guruh</option>
+                            <option value="debt" <?php echo $filterType === 'debt' ? 'selected' : ''; ?>>Qarz</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="group_filter_container" style="<?php echo $filterType !== 'group' ? 'display: none;' : ''; ?>">
+                        <label for="group_id">Guruh</label>
+                        <select id="group_id" name="group_id" class="form-control">
+                            <option value="">Barcha Guruhlar</option>
+                            <?php foreach ($groups as $group): ?>
+                                <option value="<?php echo $group['id']; ?>" <?php echo $filterGroupId == $group['id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($group['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="form-group">
                         <button type="submit" class="btn btn-primary btn-block">Filtrlash</button>
                     </div>
@@ -197,10 +352,11 @@ $totalPages = ceil($totalCount / $perPage);
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th>#</th>
                                 <th>Sana va Vaqt</th>
                                 <th>Telefon</th>
-                                <th>Kontakt</th>
+                                <th>Turi</th>
+                                <th>Kontakt/Qarzdor</th>
                                 <th>Guruh</th>
                                 <th>SMS Matni</th>
                                 <th>Holat</th>
@@ -211,12 +367,26 @@ $totalPages = ceil($totalCount / $perPage);
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($logs as $log): ?>
+                            <?php $i = $offset; // Pagination bilan to'g'ri tartib raqami uchun ?>
+                            <?php foreach ($logs as $log): $i++; ?>
                                 <tr>
-                                    <td><?php echo $log['id']; ?></td>
+                                    <td><?php echo $i; ?></td>
                                     <td><?php echo date('d.m.Y H:i', strtotime($log['sent_at'])); ?></td>
                                     <td><?php echo htmlspecialchars($log['phone']); ?></td>
-                                    <td><?php echo htmlspecialchars($log['contact_name'] ?? '-'); ?></td>
+                                    <td>
+                                        <?php if ($log['sms_type'] === 'group'): ?>
+                                            <span class="status-badge status-pending" style="background: #3b82f6; color: white;">Guruh</span>
+                                        <?php else: ?>
+                                            <span class="status-badge status-pending" style="background: #f59e0b; color: white;">Qarz</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($log['sms_type'] === 'group'): ?>
+                                            <?php echo htmlspecialchars($log['contact_name'] ?? '-'); ?>
+                                        <?php else: ?>
+                                            <?php echo htmlspecialchars($log['debtor_name'] ?? '-'); ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo htmlspecialchars($log['group_name'] ?? '-'); ?></td>
                                     <td style="max-width: 200px; word-wrap: break-word;">
                                         <?php echo htmlspecialchars(mb_substr($log['message'], 0, 50)) . (mb_strlen($log['message']) > 50 ? '...' : ''); ?>
@@ -241,7 +411,7 @@ $totalPages = ceil($totalCount / $perPage);
                 <?php if ($totalPages > 1): ?>
                     <div class="pagination">
                         <?php if ($page > 1): ?>
-                            <a href="?date_from=<?php echo urlencode($dateFrom); ?>&date_to=<?php echo urlencode($dateTo); ?><?php echo $filterUserId !== null ? '&user_id=' . $filterUserId : ''; ?>&page=<?php echo $page - 1; ?>" class="pagination-btn">
+                            <a href="?date_from=<?php echo urlencode($dateFrom); ?>&date_to=<?php echo urlencode($dateTo); ?><?php echo $filterUserId !== null ? '&user_id=' . $filterUserId : ''; ?><?php echo $filterType !== null ? '&sms_type=' . urlencode($filterType) : ''; ?><?php echo $filterGroupId !== null ? '&group_id=' . $filterGroupId : ''; ?>&page=<?php echo $page - 1; ?>" class="pagination-btn">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M15 18l-6-6 6-6"></path>
                                 </svg>
@@ -265,7 +435,7 @@ $totalPages = ceil($totalCount / $perPage);
                         </div>
                         
                         <?php if ($page < $totalPages): ?>
-                            <a href="?date_from=<?php echo urlencode($dateFrom); ?>&date_to=<?php echo urlencode($dateTo); ?><?php echo $filterUserId !== null ? '&user_id=' . $filterUserId : ''; ?>&page=<?php echo $page + 1; ?>" class="pagination-btn">
+                            <a href="?date_from=<?php echo urlencode($dateFrom); ?>&date_to=<?php echo urlencode($dateTo); ?><?php echo $filterUserId !== null ? '&user_id=' . $filterUserId : ''; ?><?php echo $filterType !== null ? '&sms_type=' . urlencode($filterType) : ''; ?><?php echo $filterGroupId !== null ? '&group_id=' . $filterGroupId : ''; ?>&page=<?php echo $page + 1; ?>" class="pagination-btn">
                                 Keyingi
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M9 18l6-6-6-6"></path>
@@ -286,6 +456,25 @@ $totalPages = ceil($totalCount / $perPage);
     </div>
 
     <script src="<?php echo base_url('/assets/js/main.js'); ?>"></script>
+    <script>
+        // Show/hide group filter based on SMS type
+        document.addEventListener('DOMContentLoaded', function() {
+            const smsTypeSelect = document.getElementById('sms_type');
+            const groupFilterContainer = document.getElementById('group_filter_container');
+            const groupIdSelect = document.getElementById('group_id');
+            
+            if (smsTypeSelect && groupFilterContainer) {
+                smsTypeSelect.addEventListener('change', function() {
+                    if (this.value === 'group') {
+                        groupFilterContainer.style.display = 'block';
+                    } else {
+                        groupFilterContainer.style.display = 'none';
+                        groupIdSelect.value = '';
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>
 

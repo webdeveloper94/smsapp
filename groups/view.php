@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/database.php';
 
 $auth = new Auth();
-$auth->requireLogin();
+$auth->requirePermission('view_groups');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();
@@ -86,8 +86,12 @@ $success = $_GET['success'] ?? '';
         <div class="actions-bar">
             <h1><?php echo htmlspecialchars($group['name']); ?></h1>
             <div>
-                <a href="edit.php?id=<?php echo $groupId; ?>" class="btn btn-warning">Tahrirlash</a>
-                <a href="contacts/add.php?group_id=<?php echo $groupId; ?>" class="btn btn-primary">Kontakt Qo'shish</a>
+                <?php if ($auth->hasPermission('edit_groups') && ($userRole === 'super_admin' || $group['created_by'] == $userId)): ?>
+                    <a href="edit.php?id=<?php echo $groupId; ?>" class="btn btn-warning">Tahrirlash</a>
+                <?php endif; ?>
+                <?php if ($auth->hasPermission('create_contacts')): ?>
+                    <a href="contacts/add.php?group_id=<?php echo $groupId; ?>" class="btn btn-primary">Kontakt Qo'shish</a>
+                <?php endif; ?>
                 <a href="index.php" class="btn btn-secondary">Orqaga</a>
             </div>
         </div>
@@ -163,14 +167,20 @@ $success = $_GET['success'] ?? '';
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button onclick="openSMSModal(<?php echo $contact['id']; ?>, '<?php echo htmlspecialchars($contact['phone'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($contact['message'] ?? ($settings['default_message'] ?? ''), ENT_QUOTES); ?>')" class="btn btn-sm btn-success">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.25rem;">
-                                                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
-                                            </svg>
-                                            <span class="btn-text">SMS</span>
-                                        </button>
-                                        <a href="contacts/edit.php?id=<?php echo $contact['id']; ?>" class="btn btn-sm btn-warning">Tahrirlash</a>
-                                        <a href="contacts/delete.php?id=<?php echo $contact['id']; ?>" class="btn btn-sm btn-danger">O'chirish</a>
+                                        <?php if ($auth->hasPermission('send_sms')): ?>
+                                            <button onclick="openSMSModal(<?php echo $contact['id']; ?>, '<?php echo htmlspecialchars($contact['phone'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($contact['message'] ?? ($settings['default_message'] ?? ''), ENT_QUOTES); ?>')" class="btn btn-sm btn-success">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.25rem;">
+                                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
+                                                </svg>
+                                                <span class="btn-text">SMS</span>
+                                            </button>
+                                        <?php endif; ?>
+                                        <?php if ($auth->hasPermission('edit_contacts')): ?>
+                                            <a href="contacts/edit.php?id=<?php echo $contact['id']; ?>" class="btn btn-sm btn-warning">Tahrirlash</a>
+                                        <?php endif; ?>
+                                        <?php if ($auth->hasPermission('delete_contacts')): ?>
+                                            <a href="contacts/delete.php?id=<?php echo $contact['id']; ?>" class="btn btn-sm btn-danger">O'chirish</a>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/database.php';
 
 $auth = new Auth();
-$auth->requireLogin();
+$auth->requirePermission('edit_groups');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();

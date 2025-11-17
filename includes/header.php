@@ -11,9 +11,18 @@ if (!isset($auth)) {
             <h2><?php echo APP_NAME; ?></h2>
         </div>
         <nav class="main-nav">
-            <a href="<?php echo base_url('/index.php'); ?>">Bosh Sahifa</a>
-            <a href="<?php echo base_url('/groups/index.php'); ?>">Guruhlar</a>
-            <a href="<?php echo base_url('/reports/index.php'); ?>">Hisobotlar</a>
+            <?php if ($auth->hasPermission('view_dashboard')): ?>
+                <a href="<?php echo base_url('/index.php'); ?>">Bosh Sahifa</a>
+            <?php endif; ?>
+            <?php if ($auth->hasPermission('view_groups')): ?>
+                <a href="<?php echo base_url('/groups/index.php'); ?>">Guruhlar</a>
+            <?php endif; ?>
+            <?php if ($auth->hasPermission('view_debts')): ?>
+                <a href="<?php echo base_url('/debts/index.php'); ?>">Qarzlar</a>
+            <?php endif; ?>
+            <?php if ($auth->hasPermission('view_reports')): ?>
+                <a href="<?php echo base_url('/reports/index.php'); ?>">Hisobotlar</a>
+            <?php endif; ?>
             <?php if ($auth->isSuperAdmin()): ?>
                 <a href="<?php echo base_url('/admins/index.php'); ?>">Adminlar</a>
             <?php endif; ?>

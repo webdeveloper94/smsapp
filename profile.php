@@ -70,6 +70,10 @@ $contactCount = $db->query(
      WHERE g.created_by = ?",
     [$userId]
 )->fetch()['count'];
+
+// Get SMS limit info
+$limitInfo = $auth->getSMSLimitInfo();
+$currentMonth = date('Y-m');
 ?>
 <!DOCTYPE html>
 <html lang="uz">
@@ -101,6 +105,21 @@ $contactCount = $db->query(
             <div class="stat-card">
                 <h3>Jami Kontaktlar</h3>
                 <p class="stat-number"><?php echo $contactCount; ?></p>
+            </div>
+            <div class="stat-card">
+                <h3>SMS Limit (<?php echo date('F Y'); ?>)</h3>
+                <p class="stat-number">
+                    <?php if ($limitInfo['limit'] == -1): ?>
+                        <span class="text-success">Cheksiz</span>
+                    <?php else: ?>
+                        <?php echo number_format($limitInfo['remaining'], 0, ',', ' '); ?> / <?php echo number_format($limitInfo['limit'], 0, ',', ' '); ?>
+                        <?php if ($limitInfo['remaining'] == 0): ?>
+                            <br><small class="text-danger">Limit tugagan!</small>
+                        <?php elseif ($limitInfo['remaining'] <= ($limitInfo['limit'] * 0.2)): ?>
+                            <br><small class="text-warning">Limit deyarli tugagan</small>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </p>
             </div>
         </div>
 

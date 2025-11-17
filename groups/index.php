@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/database.php';
 
 $auth = new Auth();
-$auth->requireLogin();
+$auth->requirePermission('view_groups');
 
 $db = Database::getInstance();
 $userId = $auth->getUserId();
@@ -39,7 +39,9 @@ if ($userRole === 'super_admin') {
     <div class="container">
         <div class="actions-bar">
             <h1>Guruhlar</h1>
-            <a href="create.php" class="btn btn-primary">Yangi Guruh</a>
+            <?php if ($auth->hasPermission('create_groups')): ?>
+                <a href="create.php" class="btn btn-primary">Yangi Guruh</a>
+            <?php endif; ?>
         </div>
 
         <div class="table-container">
@@ -130,8 +132,10 @@ if ($userRole === 'super_admin') {
                                 <td>
                                     <div class="action-buttons">
                                         <a href="view.php?id=<?php echo $group['id']; ?>" class="btn btn-sm btn-info">Ko'rish</a>
-                                        <?php if ($userRole === 'super_admin' || $group['created_by'] == $userId): ?>
+                                        <?php if (($userRole === 'super_admin' || $group['created_by'] == $userId) && $auth->hasPermission('edit_groups')): ?>
                                             <a href="edit.php?id=<?php echo $group['id']; ?>" class="btn btn-sm btn-warning">Tahrirlash</a>
+                                        <?php endif; ?>
+                                        <?php if (($userRole === 'super_admin' || $group['created_by'] == $userId) && $auth->hasPermission('delete_groups')): ?>
                                             <a href="delete.php?id=<?php echo $group['id']; ?>" class="btn btn-sm btn-danger">O'chirish</a>
                                         <?php endif; ?>
                                     </div>
