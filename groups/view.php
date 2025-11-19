@@ -86,6 +86,14 @@ $success = $_GET['success'] ?? '';
         <div class="actions-bar">
             <h1><?php echo htmlspecialchars($group['name']); ?></h1>
             <div>
+                <?php if ($auth->hasPermission('send_sms') && ($userRole === 'super_admin' || $group['created_by'] == $userId)): ?>
+                    <button onclick="sendGroupSMS()" class="btn btn-success" id="sendGroupSMSBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
+                        </svg>
+                        SMS Yuborish
+                    </button>
+                <?php endif; ?>
                 <?php if ($auth->hasPermission('edit_groups') && ($userRole === 'super_admin' || $group['created_by'] == $userId)): ?>
                     <a href="edit.php?id=<?php echo $groupId; ?>" class="btn btn-warning">Tahrirlash</a>
                 <?php endif; ?>
@@ -517,6 +525,69 @@ $success = $_GET['success'] ?? '';
                 closeSMSModal();
             }
         });
+
+        // Send SMS to all contacts in group
+        function sendGroupSMS() {
+            const sendBtn = document.getElementById('sendGroupSMSBtn');
+            if (!sendBtn) return;
+            
+            // Confirm action
+            if (!confirm('Guruhdagi barcha kontaktlarga SMS yuborilsinmi? Bu navbatdan tashqari yuboriladi.')) {
+                return;
+            }
+            
+            // Disable button and show loading
+            sendBtn.disabled = true;
+            const originalText = sendBtn.innerHTML;
+            sendBtn.innerHTML = '<span class="loading">Yuborilmoqda...</span>';
+            
+            // Send AJAX request
+            const formData = new FormData();
+            formData.append('group_id', <?php echo $groupId; ?>);
+            
+            const apiUrl = '<?php echo base_url('/api/send_group_sms.php'); ?>';
+            
+            fetch(apiUrl, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error('HTTP Error: ' + response.status + ' - ' + text.substring(0, 100));
+                    });
+                }
+                return response.text();
+            })
+            .then(text => {
+                try {
+                    const data = JSON.parse(text);
+                    
+                    if (data.success) {
+                        alert(data.message);
+                        // Reload page to show updated status
+                        location.reload();
+                    } else {
+                        alert('Xatolik: ' + data.message);
+                        sendBtn.disabled = false;
+                        sendBtn.innerHTML = originalText;
+                    }
+                } catch (e) {
+                    console.error('Parse error:', e);
+                    console.error('Response text:', text);
+                    alert('Javobni tahlil qilishda xatolik: ' + e.message);
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+                alert('Xatolik yuz berdi: ' + error.message);
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = originalText;
+            });
+        }
     </script>
 </body>
 </html>

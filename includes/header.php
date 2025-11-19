@@ -23,6 +23,9 @@ if (!isset($auth)) {
             <?php if ($auth->hasPermission('view_reports')): ?>
                 <a href="<?php echo base_url('/reports/index.php'); ?>">Hisobotlar</a>
             <?php endif; ?>
+            <?php if ($auth->hasPermission('send_sms')): ?>
+                <a href="<?php echo base_url('/send_sms.php'); ?>">SMS Yuborish</a>
+            <?php endif; ?>
             <?php if ($auth->isSuperAdmin()): ?>
                 <a href="<?php echo base_url('/admins/index.php'); ?>">Adminlar</a>
             <?php endif; ?>
